@@ -156,9 +156,6 @@ void multiplyToomCook3(int16_t* a, int16_t* b, int size, int16_t* z)
 	// ==== z = c4 * x^4 + c3 * x^3 + c2 * x^2 + c1 * x + c0
 	for (i = 0; i < (size / 3) * 2; i++) z[i + size / 3] += c1[i];
 	for (i = 0; i < (size / 3) * 2; i++) z[i + (size / 3) * 3] += c3[i];
-
-	//delete a0, a1, a2, b0, b1, b2, c0, c2, c4, c1, c3,
-	//	a_m2, a_m1, a_0, a_1, a_inf, b_m2, b_m1, b_0, b_1, b_inf, c_m2, c_m1, c_0, c_1, c_inf;
 }
 
 void doCarry(int16_t* a, int size) {
@@ -267,6 +264,11 @@ int main(int* argc, char** argv)
 	MPI_Type_contiguous(currentsize, MPI_SHORT, &MPI_LONG_NUMBER);
 	MPI_Type_commit(&MPI_LONG_NUMBER);
 
+	MPI_Group MY_GROUP;
+	MPI_Comm MY_COMM;
+	MPI_Comm_group(MPI_COMM_WORLD, &MY_GROUP);
+	MPI_Comm_create(MPI_COMM_WORLD, MY_GROUP, &MY_COMM);
+
 	srand(time(NULL) + rank);
 
 	int16_t* A = new int16_t[currentsize];
@@ -296,8 +298,14 @@ int main(int* argc, char** argv)
 	}
 	Sleep(100);
 
+	int iteration = 1;
+
 	while (procNumbers.size() != 1)
 	{
+		MPI_Group_incl(MY_GROUP, procNumbers.size(), procNumbers.data(), &MY_GROUP);
+
+		MPI_Comm_create(MY_COMM, MY_GROUP, &MY_COMM);
+
 		for (int i = 0; i < procNumbers.size(); i++)
 		{
 			if (procNumbers[i] == rank)
@@ -308,7 +316,7 @@ int main(int* argc, char** argv)
 				}
 				else
 				{
-					MPI_Send(Z, 1, MPI_LONG_NUMBER, procNumbers[i - 1], 0, MPI_COMM_WORLD);
+					MPI_Send(Z, 1, MPI_LONG_NUMBER, procNumbers[i - 1] / iteration, 0, MY_COMM);
 				}
 				break;
 			}
@@ -320,12 +328,14 @@ int main(int* argc, char** argv)
 			{
 				if (i % 2 == 0)
 				{
-					MPI_Recv(B, 1, MPI_LONG_NUMBER, procNumbers[i + 1], 0, MPI_COMM_WORLD, &status);
+					MPI_Recv(B, 1, MPI_LONG_NUMBER, procNumbers[i + 1] / iteration, 0, MY_COMM, &status);
 					calcToomCook(A, B, Z, currentsize);
 				}
 			}
 		}
 		removeRanksNumbers(procNumbers, numtasks);
+
+		iteration *= 2;
 	}
 
 	if (rank == 0)
@@ -335,8 +345,10 @@ int main(int* argc, char** argv)
 			+ "\n----------------------------\n";
 	}
 
+	//MPI_Group_free(&MY_GROUP);
+	//MPI_Comm_free(&MY_COMM);
+
 	MPI_Finalize();
 
 	return 0;
 }
-
